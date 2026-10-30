@@ -1,0 +1,74 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: bhp-db
+    environment:
+      POSTGRES_USER: bhp_user
+      POSTGRES_PASSWORD: bhp_password
+      POSTGRES_DB: bhp_core
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bhp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bhp_user -d bhp_core"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: bhp-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - bhp-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bhp-backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://bhp_user:bhp_password@db:5432/bhp_core
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bhp-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bhp-frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - bhp-network
+
+networks:
+  bhp-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
